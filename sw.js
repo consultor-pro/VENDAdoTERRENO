@@ -1,62 +1,22 @@
-// Service Worker do CRM
-// Guarda uma cópia do app no dispositivo para ele abrir mesmo sem internet.
-//
-// IMPORTANTE: toda vez que você atualizar o index.html e subir uma nova
-// versão, mude o número abaixo (ex: 'elo-crm-v3'). Isso força o navegador
-// a baixar a versão nova em vez de continuar usando a cópia antiga salva.
-const CACHE_NAME = 'elo-teste-hierarquia-v21';
-
-const ARQUIVOS_ESSENCIAIS = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-180.png'
+/* Service worker — cache do app para funcionar offline e permitir instalação */
+const CACHE = 'venda-terreno-v1';
+const ARQUIVOS = [
+  './', './index.html', './styles.css', './app.js', './manifest.webmanifest',
+  './icons/logo.png', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png'
 ];
-
-// Ao instalar o Service Worker, guarda uma cópia dos arquivos essenciais
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ARQUIVOS_ESSENCIAIS))
-  );
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));
 });
-
-// Ao ativar, apaga versões antigas de cache que tenham ficado pra trás
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((nomes) =>
-      Promise.all(
-        nomes
-          .filter((nome) => nome !== CACHE_NAME)
-          .map((nome) => caches.delete(nome))
-      )
-    ).then(() => self.clients.claim())
-  );
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
-
-// Estratégia: tenta buscar na internet primeiro (pra sempre pegar a versão
-// mais nova quando tiver conexão); se não conseguir (offline), usa a cópia
-// salva localmente. Toda resposta boa da internet também é salva de novo.
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  // dados do Google Maps nunca são guardados no aparelho (regra do Google)
-  if (new URL(event.request.url).hostname === 'places.googleapis.com') return;
-
-  event.respondWith(
-    fetch(event.request)
-      .then((respostaRede) => {
-        const copia = respostaRede.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copia));
-        return respostaRede;
-      })
-      .catch(() =>
-        caches.match(event.request).then((respostaCache) => {
-          if (respostaCache) return respostaCache;
-          if (event.request.mode === 'navigate') return caches.match('./index.html');
-          return new Response('Offline e sem cópia salva deste arquivo.', { status: 503 });
-        })
-      )
+// Rede primeiro (pega atualizações), cache como reserva quando estiver offline
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) return;
+  e.respondWith(
+    fetch(e.request).then(r => {
+      if (r && r.ok) { const copia = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copia)); }
+      return r;
+    }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('./index.html')))
   );
 });

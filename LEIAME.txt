@@ -1,0 +1,16 @@
+VENDA DO TERRENO - Controle de Recebíveis (PWA)
+
+Login: Paulocesar   |   Senha: Paulo123  (pode ser alterada em Ajustes)
+
+COMO PUBLICAR (necessário para instalar como app no Android):
+1. Crie um repositório no GitHub e envie TODOS os arquivos desta pasta (mantendo a pasta icons/).
+2. Settings > Pages > Branch: main / (root) > Save.
+3. Abra o link https://SEU-USUARIO.github.io/NOME-DO-REPO/ no Chrome do celular e toque em "Instalar aplicativo".
+
+IMPORTANTE: os dados e comprovantes ficam somente no aparelho/navegador onde foram lançados.
+Use Ajustes > Exportar backup com frequência.
+
+CONTRATOS EM PDF: envie para a pasta contratos/ do repositório com estes nomes exatos:
+  contratos/promessa-compra-venda.pdf
+  contratos/administracao-cobranca.pdf
+(ou anexe pelo app, na aba Contratos — fica salvo só no aparelho)
