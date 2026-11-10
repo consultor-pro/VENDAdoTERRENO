@@ -468,7 +468,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.5</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.6</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -690,14 +690,17 @@ async function removerArquivo(tipo, id) {
 
 /* ---------- Backup ---------- */
 const blobParaDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
-async function exportarBackup(compartilhar) {
-  toast('Gerando backup…');
+async function montarBackup(quando = Date.now()) {
   await filaGravacao;
   const arquivos = [];
   for (const f of await arq.todos()) arquivos.push({ ...f, blob: undefined, data: await blobParaDataURL(f.blob) });
   const authSalvo = localStorage.getItem(LS_AUTH);
-  const json = JSON.stringify({ app: 'venda-terreno', versao: 2, exportadoEm: new Date().toISOString(), dados: DADOS, auth: authSalvo ? JSON.parse(authSalvo) : null, arquivos });
-  const base = `backup-venda-terreno-${hojeISO()}`;
+  const json = JSON.stringify({ app: 'venda-terreno', versao: 2, exportadoEm: new Date(quando).toISOString(), dados: DADOS, auth: authSalvo ? JSON.parse(authSalvo) : null, arquivos });
+  return { json, base: `backup-venda-terreno-${hojeISO()}`, nArquivos: arquivos.length };
+}
+async function exportarBackup(compartilhar) {
+  toast('Gerando backup…');
+  const { json, base } = await montarBackup();
   const blob = new Blob([json], { type: 'application/json' });
   const baixar = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = base + '.json'; a.click(); };
   if (compartilhar) {
@@ -731,12 +734,16 @@ async function importarBackup(e) {
     if (b.app !== 'venda-terreno' || !b.dados?.itens) throw new Error('Arquivo de backup inválido.');
     if (!confirm(`Restaurar backup de ${new Date(b.exportadoEm).toLocaleString('pt-BR')}?\nOs dados atuais serão substituídos.`)) return;
     toast('Restaurando…', 4000);
-    await arq.limpar();
-    for (const f of b.arquivos || []) { const blob = await (await fetch(f.data)).blob(); await arq.put({ ...f, data: undefined, blob }); }
-    DADOS = b.dados; await arq.kvPut('dados', DADOS);
-    if (b.auth) localStorage.setItem(LS_AUTH, JSON.stringify(b.auth)); else localStorage.removeItem(LS_AUTH);
+    await restaurarBackup(b, true);
     render(); toast(`Backup restaurado! ${b.dados.itens.filter(i => i.pago).length} pagamentos e ${(b.arquivos || []).length} arquivos.`);
   } catch (err) { alert('Erro ao restaurar: ' + err.message); }
+}
+async function restaurarBackup(b, comLogin) {
+  await arq.limpar();
+  for (const f of b.arquivos || []) { const blob = await (await fetch(f.data)).blob(); await arq.put({ ...f, data: undefined, blob }); }
+  DADOS = b.dados; DADOS.ultimaAtualizacaoLink = Math.max(DADOS.ultimaAtualizacaoLink || 0, new Date(b.exportadoEm).getTime());
+  await arq.kvPut('dados', DADOS);
+  if (comLogin) { if (b.auth) localStorage.setItem(LS_AUTH, JSON.stringify(b.auth)); else localStorage.removeItem(LS_AUTH); }
 }
 async function apagarTudo() {
   [LS_DADOS, LS_AUTH, LS_SESSAO, LS_TENT].forEach(k => localStorage.removeItem(k));
@@ -764,28 +771,74 @@ async function descompactar(s) {
   if (s[0] === 'j') return new TextDecoder().decode(bytes);
   return await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
 }
-async function gerarLinkAtualizacao() {
+async function gerarLinkAtualizacao(quando = Date.now()) {
   await filaGravacao;
   const i = {};
   DADOS.itens.forEach(it => { if (it.pago || it.obs) i[it.id] = CAMPOS_LINK.map(c => it[c]); });
-  const cod = await compactar(JSON.stringify({ v: 1, t: Date.now(), i }));
+  const cod = await compactar(JSON.stringify({ v: 1, t: quando, i }));
   return location.origin + location.pathname + '#importar=' + cod;
 }
 async function enviarAtualizacao() {
-  const url = await gerarLinkAtualizacao();
+  toast('Preparando atualização…', 4000);
+  const agora = Date.now();
+  const url = await gerarLinkAtualizacao(agora);
+  const { json, base, nArquivos } = await montarBackup(agora);
+  const arquivo = new File([json], base + '.txt', { type: 'text/plain' });
+  const podeArquivo = !!(navigator.canShare && navigator.canShare({ files: [arquivo] }));
   const r = resumo();
-  const msg = `📋 *Venda do Terreno* – atualização de ${fmtData(hojeISO())}\n${r.pagasParc} de ${r.totalParc} parcelas pagas.\n\n👉 Toque no link para atualizar o sistema:\n${url}`;
+  const msg = `📋 *Venda do Terreno* – atualização de ${fmtData(hojeISO())}\n${r.pagasParc} de ${r.totalParc} parcelas pagas.\n\n👉 Toque no link para atualizar o sistema:\n${url}\n\n📎 Comprovantes: no arquivo que vou mandar em seguida, segure o dedo › Compartilhar › *Venda Terreno*.`;
   $('#toast').classList.add('hidden');
   abrirModal('Enviar atualização', `
-    <p style="margin-top:0">Quem receber só precisa <b>tocar no link</b>: o sistema abre e se atualiza sozinho (pede a senha se a sessão tiver expirado).</p>
-    <a class="btn btn-verde btn-bloco" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" id="lk-wa">🟢 Enviar pelo WhatsApp</a>
-    ${navigator.share ? '<button class="btn btn-outline btn-bloco" id="lk-share" style="margin-top:.6rem">📤 Outros aplicativos</button>' : ''}
-    <button class="btn btn-cinza btn-bloco" id="lk-copiar" style="margin-top:.6rem">📋 Copiar mensagem</button>
-    <p class="pequeno muted">Vão no link os pagamentos, encargos, repasses e observações. Comprovantes e contratos não cabem no link — para eles use o backup completo.</p>`);
-  $('#lk-wa').onclick = () => setTimeout(fecharModal, 400);
-  if ($('#lk-share')) $('#lk-share').onclick = () => navigator.share({ title: 'Venda do Terreno', text: msg }).then(fecharModal).catch(() => { });
+    <p style="margin-top:0">Envie as <b>duas coisas</b> para a mesma conversa:</p>
+    <a class="btn btn-verde btn-bloco" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" id="lk-wa">1️⃣ Enviar link pelo WhatsApp</a>
+    <p class="pequeno muted" style="margin:.3rem 0 .9rem">Atualiza os pagamentos com um toque.</p>
+    ${podeArquivo ? `<button class="btn btn-outline btn-bloco" id="lk-arquivo">2️⃣ Enviar arquivo com comprovantes</button>
+      <p class="pequeno muted" style="margin:.3rem 0 .9rem">${nArquivos} comprovante(s)/contrato(s) · ${fmtTam(arquivo.size)}. Quem recebe: segura o dedo no arquivo › Compartilhar › Venda Terreno.</p>`
+      : `<button class="btn btn-outline btn-bloco" id="lk-baixar">2️⃣ Salvar arquivo com comprovantes</button>
+      <p class="pequeno muted" style="margin:.3rem 0 .9rem">Depois, no WhatsApp: clipe 📎 › Documento › escolha o arquivo.</p>`}
+    <button class="btn btn-cinza btn-bloco" id="lk-copiar">📋 Copiar mensagem do link</button>`);
   $('#lk-copiar').onclick = () => navigator.clipboard.writeText(msg).then(() => toast('Mensagem copiada. Cole no WhatsApp.')).catch(() => prompt('Copie a mensagem:', msg));
+  if ($('#lk-arquivo')) $('#lk-arquivo').onclick = () => navigator.share({ files: [arquivo], text: 'Comprovantes – Venda do Terreno (segure o dedo › Compartilhar › Venda Terreno)' })
+    .then(() => { localStorage.setItem('rt_ultimo_backup', Date.now()); toast('Arquivo enviado.'); })
+    .catch(e => { if (e.name !== 'AbortError') alert('O celular não liberou o compartilhamento (' + e.message + ').'); });
+  if ($('#lk-baixar')) $('#lk-baixar').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(arquivo); a.download = base + '.txt'; a.click(); localStorage.setItem('rt_ultimo_backup', Date.now()); };
 }
+
+/* ---------- Receber arquivo compartilhado (WhatsApp › Compartilhar › Venda Terreno) ---------- */
+const CACHE_RECEBIDO = 'venda-terreno-recebido';
+const chaveRecebido = () => new URL('__backup-recebido', location.href).href;
+async function lerBackupRecebido() {
+  if (!window.caches) return null;
+  const c = await caches.open(CACHE_RECEBIDO); const r = await c.match(chaveRecebido());
+  return r ? await r.text() : null;
+}
+async function limparBackupRecebido() { if (window.caches) await (await caches.open(CACHE_RECEBIDO)).delete(chaveRecebido()); }
+async function aplicarBackupRecebido(forcar) {
+  const txt = await lerBackupRecebido().catch(() => null); if (!txt || !DADOS) return;
+  let b;
+  try { b = JSON.parse(txt); if (b.app !== 'venda-terreno' || !b.dados?.itens) throw 0; }
+  catch { await limparBackupRecebido(); return abrirModal('Arquivo inválido', '<p>Este arquivo não é um backup do Venda do Terreno.</p><button class="btn btn-primario btn-bloco" data-fechar>OK</button>'); }
+  const t = new Date(b.exportadoEm).getTime();
+  const quando = new Date(t).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  const editadoDepois = DADOS.itens.some(it => it.atualizadoEm && new Date(it.atualizadoEm).getTime() > t);
+  if (!forcar && (editadoDepois || (DADOS.ultimaAtualizacaoLink || 0) > t)) {
+    abrirModal('Atenção', `<p>Este arquivo é de <b>${quando}</b> e há informações mais novas neste aparelho. Se continuar, elas serão substituídas.</p>
+      <button class="btn btn-primario btn-bloco" id="rb-forcar">Atualizar mesmo assim</button>
+      <button class="btn btn-cinza btn-bloco" style="margin-top:.6rem" id="rb-cancelar">Manter como está</button>`);
+    $('#rb-forcar').onclick = () => { fecharModal(); aplicarBackupRecebido(true); };
+    $('#rb-cancelar').onclick = async () => { await limparBackupRecebido(); fecharModal(); };
+    return;
+  }
+  abrirModal('Recebendo…', '<p>Atualizando pagamentos e comprovantes…</p>');
+  await restaurarBackup(b, false);
+  await limparBackupRecebido();
+  irPara('inicio');
+  const r = resumo();
+  abrirModal('Sistema atualizado ✅', `<p style="font-size:1.05rem;margin-top:0">Arquivo de <b>${quando}</b> recebido, com <b>${(b.arquivos || []).length}</b> comprovante(s)/contrato(s).</p>
+    <p><b>${r.pagasParc} de ${r.totalParc}</b> parcelas pagas · recebido ${brl(r.recebidoBruto)}</p>
+    <button class="btn btn-primario btn-bloco" data-fechar>OK</button>`);
+}
+
 function capturarLinkImportacao() {
   if (!location.hash.startsWith('#importar=')) return false;
   localStorage.setItem(LS_IMPORT, location.hash.slice(10));
@@ -831,7 +884,8 @@ async function entrarApp() {
   $('#conteudo').innerHTML = '<p class="muted" style="text-align:center">Carregando…</p>';
   try { await carregarDados(); } catch (e) { alert('Erro ao abrir os dados do aparelho: ' + e.message); }
   verificarSessao(); irPara(VIEW || 'inicio');
-  aplicarImportacaoPendente();
+  await aplicarImportacaoPendente();
+  aplicarBackupRecebido();
 }
 
 document.addEventListener('click', e => {
@@ -875,9 +929,10 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   if (window.caches) caches.keys().then(ks => ks.filter(k => !k.startsWith('venda-terreno-')).forEach(k => caches.delete(k)));
 }
 atualizarBotoesInstalar();
-const veioPorLink = capturarLinkImportacao();
+let veioPorLink = capturarLinkImportacao();
+if (location.hash === '#backup-recebido') { veioPorLink = true; history.replaceState(null, '', location.pathname + location.search); }
 window.addEventListener('hashchange', () => { if (capturarLinkImportacao() && sessaoValida() && !$('#app').classList.contains('hidden')) aplicarImportacaoPendente(); });
 if (sessaoValida()) entrarApp(); else {
   const havia = !!getSessao(); localStorage.removeItem(LS_SESSAO);
-  mostrarLogin(veioPorLink || localStorage.getItem(LS_IMPORT) ? 'Entre com sua senha para receber a atualização dos pagamentos.' : (havia ? 'Sua sessão expirou (limite de 6 horas). Entre novamente.' : ''));
+  mostrarLogin(veioPorLink || localStorage.getItem(LS_IMPORT) ? 'Entre com sua senha para receber a atualização.' : (havia ? 'Sua sessão expirou (limite de 6 horas). Entre novamente.' : ''));
 }
