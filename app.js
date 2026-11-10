@@ -140,19 +140,25 @@ function gerarCronograma() {
     novoItem({ id: 'sinal', tipo: 'sinal', rotulo: 'Sinal de negócio', venc: CONTRATO.dataContrato, valor: CONTRATO.sinal }),
     novoItem({ id: 'corretagem', tipo: 'corretagem', rotulo: 'Intermediação (corretagem)', venc: CONTRATO.dataContrato, valor: CONTRATO.corretagem })
   ];
-  let n = 0, [y, m] = CONTRATO.primeiroVenc.split('-').map(Number);
-  const [by, bm] = CONTRATO.balao.venc.split('-').map(Number);
-  while (n < CONTRATO.qtdParcelas) {
-    if (y === by && m === bm) {
-      // Cláusula 2ª, item 4: o balão NÃO acumula com a parcela mensal desse mês
-      itens.push(novoItem({ id: 'balao', tipo: 'balao', rotulo: 'Parcela única (balão)', venc: CONTRATO.balao.venc, valor: CONTRATO.balao.valor }));
-    } else {
-      n++;
-      itens.push(novoItem({ id: 'p' + n, tipo: 'mensal', num: n, rotulo: `Parcela ${n}/${CONTRATO.qtdParcelas}`, venc: `${y}-${pad(m)}-${pad(CONTRATO.diaVencimento)}`, valor: CONTRATO.valorParcela }));
-    }
-    m++; if (m > 12) { m = 1; y++; }
-  }
-  return itens;
+  // 22 parcelas mensais de 15/11/2026 a 15/08/2028; em 15/10/2027 vence também a parcela única (balão)
+  for (let n = 1; n <= CONTRATO.qtdParcelas; n++)
+    itens.push(novoItem({ id: 'p' + n, tipo: 'mensal', num: n, rotulo: `Parcela ${n}/${CONTRATO.qtdParcelas}`, venc: vencMensal(n), valor: CONTRATO.valorParcela }));
+  itens.push(novoItem({ id: 'balao', tipo: 'balao', rotulo: 'Parcela única (balão)', venc: CONTRATO.balao.venc, valor: CONTRATO.balao.valor }));
+  return ordenarItens(itens);
+}
+function vencMensal(n) {
+  let [y, m] = CONTRATO.primeiroVenc.split('-').map(Number);
+  m += n - 1; y += Math.floor((m - 1) / 12); m = (m - 1) % 12 + 1;
+  return `${y}-${pad(m)}-${pad(CONTRATO.diaVencimento)}`;
+}
+const ORDEM_TIPO = { sinal: 0, corretagem: 1, mensal: 2, balao: 3 };
+function ordenarItens(itens) { return itens.sort((a, b) => a.venc.localeCompare(b.venc) || ORDEM_TIPO[a.tipo] - ORDEM_TIPO[b.tipo]); }
+// Corrige dados criados na 1ª versão, que pulava a parcela mensal de out/2027 (mantém os pagamentos lançados)
+function corrigirCronograma(d) {
+  if (!d || !Array.isArray(d.itens) || d.cronograma === 2) return d;
+  d.itens.forEach(it => { if (it.tipo === 'mensal') it.venc = vencMensal(it.num); if (it.tipo === 'balao') it.venc = CONTRATO.balao.venc; });
+  ordenarItens(d.itens); d.cronograma = 2;
+  return d;
 }
 let DADOS = null;
 async function carregarDados() {
@@ -160,7 +166,8 @@ async function carregarDados() {
   if (!DADOS) { // migra versão antiga que usava localStorage
     try { DADOS = JSON.parse(localStorage.getItem(LS_DADOS)); } catch { DADOS = null; }
   }
-  if (!DADOS || !Array.isArray(DADOS.itens)) DADOS = { versao: 1, criadoEm: new Date().toISOString(), itens: gerarCronograma() };
+  if (!DADOS || !Array.isArray(DADOS.itens)) DADOS = { versao: 1, cronograma: 2, criadoEm: new Date().toISOString(), itens: gerarCronograma() };
+  corrigirCronograma(DADOS);
   await arq.kvPut('dados', DADOS);
   localStorage.removeItem(LS_DADOS);
 }
@@ -419,7 +426,7 @@ async function renderContratos(c) {
           <li>Sinal: <b>${brl(CONTRATO.sinal)}</b> direto ao vendedor</li>
           <li>Corretagem: <b>${brl(CONTRATO.corretagem)}</b> à J Lima Immobile</li>
           <li><b>22 parcelas de ${brl(CONTRATO.valorParcela)}</b>, todo dia 15, a partir de 15/11/2026</li>
-          <li>Parcela única de <b>${brl(CONTRATO.balao.valor)}</b> em 15/10/2027 (não acumula com a mensal)</li>
+          <li>Parcela única de <b>${brl(CONTRATO.balao.valor)}</b> em 15/10/2027, junto com a parcela de ${brl(CONTRATO.valorParcela)} desse mês</li>
           <li>Atraso: multa de 10% + juros de 1% ao mês</li>
           <li>Atraso &gt; 90 dias: restituição do imóvel, multa de 35% (Cl. 3ª)</li>
           <li>Cessão a terceiro: 5% do valor da venda ao vendedor (Cl. 6ª)</li>
@@ -479,7 +486,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.9</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v2.0</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -536,7 +543,7 @@ function abrirItem(id) {
   const it = item(id); if (!it) return;
   EDIT = id;
   const adm = cobradoPelaAdm(it);
-  const nota = { sinal: 'Pago diretamente ao vendedor (PagBank/PIX). Sem taxa de administração.', corretagem: 'Valor devido à J Lima Immobile pela intermediação. Não é receita do vendedor — apenas registro.', balao: 'Cláusula 2ª, item 4: no mês de outubro/2027 vale só esta parcela (não acumula com a mensal).', mensal: '' }[it.tipo];
+  const nota = { sinal: 'Pago diretamente ao vendedor (PagBank/PIX). Sem taxa de administração.', corretagem: 'Valor devido à J Lima Immobile pela intermediação. Não é receita do vendedor — apenas registro.', balao: 'Cláusula 2ª, item 4: vence em 15/10/2027, junto com a parcela mensal de R$ 2.500 desse mês (total de R$ 12.500 em outubro/2027).', mensal: '' }[it.tipo];
   abrirModal(it.rotulo, `
     <div class="linha"><span class="muted">Vencimento <b style="color:var(--texto)">${fmtData(it.venc)}</b></span><span class="tag st-${status(it).k}">${status(it).t}</span></div>
     <div class="linha" style="margin-top:.3rem"><span class="muted">Valor do contrato</span><b style="font-size:1.25rem">${brl(it.valor)}</b></div>
@@ -748,7 +755,7 @@ async function importarBackup(e) {
 async function restaurarBackup(b, comLogin) {
   await arq.limpar();
   for (const f of b.arquivos || []) { const blob = await (await fetch(f.data)).blob(); await arq.put({ ...f, data: undefined, blob }); }
-  DADOS = b.dados; DADOS.ultimaAtualizacaoLink = Math.max(DADOS.ultimaAtualizacaoLink || 0, new Date(b.exportadoEm).getTime());
+  DADOS = corrigirCronograma(b.dados); DADOS.ultimaAtualizacaoLink = Math.max(DADOS.ultimaAtualizacaoLink || 0, new Date(b.exportadoEm).getTime());
   await arq.kvPut('dados', DADOS);
   if (comLogin) { if (b.auth) localStorage.setItem(LS_AUTH, JSON.stringify(b.auth)); else localStorage.removeItem(LS_AUTH); }
 }
