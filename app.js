@@ -466,7 +466,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.1</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.2</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -764,7 +764,11 @@ window.addEventListener('storage', e => { if (e.key === LS_SESSAO && !sessaoVali
 setInterval(verificarSessao, 20000);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').catch(() => { });
+  // Troca qualquer versão antiga guardada neste endereço (ex.: Elo CRM) pela atual
+  let recarregou = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!recarregou) { recarregou = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js?v=3', { updateViaCache: 'none' }).then(r => r.update()).catch(() => { });
+  if (window.caches) caches.keys().then(ks => ks.filter(k => !k.startsWith('venda-terreno-')).forEach(k => caches.delete(k)));
 }
 atualizarBotoesInstalar();
 if (sessaoValida()) entrarApp(); else { const havia = !!getSessao(); localStorage.removeItem(LS_SESSAO); mostrarLogin(havia ? 'Sua sessão expirou (limite de 6 horas). Entre novamente.' : ''); }
