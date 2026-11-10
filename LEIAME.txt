@@ -10,7 +10,5 @@ COMO PUBLICAR (necessário para instalar como app no Android):
 IMPORTANTE: dados, comprovantes e contratos anexados ficam no IndexedDB do aparelho (não no site).
 Para trocar de aparelho: Ajustes > Enviar/Baixar backup no antigo e Ajustes > Importar backup no novo.
 
-CONTRATOS EM PDF: envie para a pasta contratos/ do repositório com estes nomes exatos:
-  contratos/promessa-compra-venda.pdf
-  contratos/administracao-cobranca.pdf
-(ou anexe pelo app, na aba Contratos — fica salvo só no aparelho)
+CONTRATOS EM PDF: anexe pelo próprio sistema, na aba Contratos > "Anexar PDF do contrato".
+Ficam salvos só no aparelho e vão junto no backup (não envie os PDFs ao repositório, que é público).

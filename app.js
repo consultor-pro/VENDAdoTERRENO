@@ -390,18 +390,9 @@ function renderParcelas(c) {
 
 // Contratos ficam salvos só no aparelho (não vão para o site público)
 const CONTRATOS_ARQ = { promessa: 'Contrato_Promessa_Compra_Venda.pdf', adm: 'Contrato_Administracao_Cobranca.pdf' };
-// Se os PDFs forem enviados ao repositório, o app abre direto deles:
-const CONTRATOS_SITE = { promessa: 'contratos/promessa-compra-venda.pdf', adm: 'contratos/administracao-cobranca.pdf' };
-let contratosSalvos = {}, contratosNoSite = {};
-async function existeNoSite(url) {
-  if (!location.protocol.startsWith('http')) return false;
-  try { const r = await fetch(url, { method: 'HEAD', cache: 'no-store' }); return r.ok && /pdf/i.test(r.headers.get('content-type') || ''); }
-  catch { return !!(await caches.match(url).catch(() => null)); }
-}
+let contratosSalvos = {};
 function acoesContrato(k) {
   const f = contratosSalvos[k];
-  if (!f && contratosNoSite[k]) return `<div class="acoes"><a class="btn btn-primario btn-peq" href="${CONTRATOS_SITE[k]}" target="_blank" rel="noopener">Abrir PDF</a>
-    <a class="btn btn-cinza btn-peq" href="${CONTRATOS_SITE[k]}" download="${CONTRATOS_ARQ[k]}">Baixar</a></div>`;
   if (!f) return `<div class="alerta azul" style="margin-top:.7rem">📎<div>Contrato ainda não anexado neste aparelho.</div></div>
     <div class="acoes"><button class="btn btn-primario btn-peq" data-contrato="${k}">📎 Anexar PDF do contrato</button></div>`;
   return `<p class="pequeno muted" style="margin:.6rem 0 0">✅ ${esc(f.nome)} · ${fmtTam(f.blob.size)}</p>
@@ -412,11 +403,10 @@ function acoesContrato(k) {
 async function renderContratos(c) {
   for (const k of Object.keys(CONTRATOS_ARQ)) {
     contratosSalvos[k] = await arq.get('contrato-' + k).catch(() => null);
-    if (!contratosSalvos[k]) contratosNoSite[k] = await existeNoSite(CONTRATOS_SITE[k]);
   }
   if (VIEW !== 'contratos') return;
   c.innerHTML = `
-
+    <p class="pequeno muted" style="margin:0 0 .8rem">🔒 Os PDFs anexados ficam salvos só neste aparelho e vão junto no backup.</p>
     <div class="contratos-grid">
       <div class="card contrato-card">
         <h2>📄 Promessa de Compra e Venda</h2>
