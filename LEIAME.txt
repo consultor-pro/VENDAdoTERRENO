@@ -7,8 +7,8 @@ COMO PUBLICAR (necessário para instalar como app no Android):
 2. Settings > Pages > Branch: main / (root) > Save.
 3. Abra o link https://SEU-USUARIO.github.io/NOME-DO-REPO/ no Chrome do celular e toque em "Instalar aplicativo".
 
-IMPORTANTE: os dados e comprovantes ficam somente no aparelho/navegador onde foram lançados.
-Use Ajustes > Exportar backup com frequência.
+IMPORTANTE: dados, comprovantes e contratos anexados ficam no IndexedDB do aparelho (não no site).
+Para trocar de aparelho: Ajustes > Enviar/Baixar backup no antigo e Ajustes > Importar backup no novo.
 
 CONTRATOS EM PDF: envie para a pasta contratos/ do repositório com estes nomes exatos:
   contratos/promessa-compra-venda.pdf

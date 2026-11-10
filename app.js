@@ -74,22 +74,26 @@ async function hashSenha(senha, salt) {
 }
 const novoSalt = () => { const a = new Uint8Array(16); (crypto.getRandomValues ? crypto.getRandomValues(a) : a.forEach((_, i) => a[i] = Math.random() * 256)); return [...a].map(b => b.toString(16).padStart(2, '0')).join(''); };
 
-/* ---------- Armazenamento de comprovantes (local, no navegador) ---------- */
+/* ---------- Armazenamento local no IndexedDB (dados + comprovantes + contratos) ---------- */
 const arq = {
   db: null,
   abrir() {
     return new Promise((res, rej) => {
       if (this.db) return res(this.db);
-      const r = indexedDB.open('rt_comprovantes', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('f', { keyPath: 'id' });
+      const r = indexedDB.open('rt_comprovantes', 2);
+      r.onupgradeneeded = () => {
+        const db = r.result;
+        if (!db.objectStoreNames.contains('f')) db.createObjectStore('f', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
       r.onsuccess = () => { this.db = r.result; res(this.db); };
       r.onerror = () => rej(r.error);
     });
   },
-  async tx(modo, fn) {
+  async tx(modo, fn, store = 'f') {
     const db = await this.abrir();
     return new Promise((res, rej) => {
-      const t = db.transaction('f', modo); const st = t.objectStore('f');
+      const t = db.transaction(store, modo); const st = t.objectStore(store);
       let out; const req = fn(st); if (req) req.onsuccess = () => out = req.result;
       t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
     });
@@ -98,7 +102,10 @@ const arq = {
   get(id) { return this.tx('readonly', s => s.get(id)); },
   del(id) { return this.tx('readwrite', s => s.delete(id)); },
   todos() { return this.tx('readonly', s => s.getAll()); },
-  limpar() { return this.tx('readwrite', s => s.clear()); }
+  limpar() { return this.tx('readwrite', s => s.clear()); },
+  kvGet(k) { return this.tx('readonly', s => s.get(k), 'kv'); },
+  kvPut(k, v) { return this.tx('readwrite', s => s.put(v, k), 'kv'); },
+  kvLimpar() { return this.tx('readwrite', s => s.clear(), 'kv'); }
 };
 
 // Comprovantes: reduz para no máx. 1600 px no lado maior (texto segue legível) e JPEG 72%.
@@ -148,13 +155,20 @@ function gerarCronograma() {
   return itens;
 }
 let DADOS = null;
-function carregarDados() {
-  try { DADOS = JSON.parse(localStorage.getItem(LS_DADOS)); } catch { DADOS = null; }
-  if (!DADOS || !Array.isArray(DADOS.itens)) { DADOS = { versao: 1, criadoEm: new Date().toISOString(), itens: gerarCronograma() }; salvarDados(); }
+async function carregarDados() {
+  DADOS = await arq.kvGet('dados').catch(() => null);
+  if (!DADOS) { // migra versão antiga que usava localStorage
+    try { DADOS = JSON.parse(localStorage.getItem(LS_DADOS)); } catch { DADOS = null; }
+  }
+  if (!DADOS || !Array.isArray(DADOS.itens)) DADOS = { versao: 1, criadoEm: new Date().toISOString(), itens: gerarCronograma() };
+  await arq.kvPut('dados', DADOS);
+  localStorage.removeItem(LS_DADOS);
 }
+let filaGravacao = Promise.resolve();
 function salvarDados() {
-  try { localStorage.setItem(LS_DADOS, JSON.stringify(DADOS)); return true; }
-  catch (e) { alert('Não foi possível salvar: armazenamento cheio. Faça um backup e remova comprovantes antigos.'); return false; }
+  const copia = JSON.parse(JSON.stringify(DADOS));
+  filaGravacao = filaGravacao.then(() => arq.kvPut('dados', copia)).catch(e => alert('Não foi possível salvar os dados neste aparelho. ' + (e?.message || '')));
+  return true;
 }
 const item = id => DADOS.itens.find(i => i.id === id);
 const cobradoPelaAdm = it => it.tipo === 'mensal' || it.tipo === 'balao'; // itens 3 e 4
@@ -452,29 +466,32 @@ async function renderAjustes(c) {
     </div>
     <div class="card">
       <h3>Backup</h3>
-      <p class="pequeno muted">Os dados ficam apenas neste aparelho/navegador. Faça backup com frequência — se o app for desinstalado ou os dados do navegador forem limpos, tudo será perdido.</p>
-      <div class="ajuste"><div>Exportar backup (dados + comprovantes)</div><button class="btn btn-verde btn-peq" id="aj-exportar">Exportar</button></div>
-      <div class="ajuste"><div>Restaurar backup</div><button class="btn btn-cinza btn-peq" id="aj-importar">Importar</button></div>
+      <p class="pequeno muted">Tudo fica salvo só neste aparelho. O backup leva parcelas, comprovantes, contratos anexados e o login — use para guardar uma cópia ou passar para outro celular/PC.</p>
+      <div class="ajuste"><div>Baixar backup<br><span class="pequeno muted">Salva o arquivo .json em Downloads</span></div><button class="btn btn-verde btn-peq" id="aj-exportar">Baixar</button></div>
+      ${navigator.canShare ? `<div class="ajuste"><div>Enviar para outro aparelho<br><span class="pequeno muted">WhatsApp, Drive, e-mail…</span></div><button class="btn btn-verde btn-peq" id="aj-compartilhar">Enviar</button></div>` : ''}
+      <div class="ajuste"><div>Importar backup<br><span class="pequeno muted">No aparelho novo: escolha o arquivo .json</span></div><button class="btn btn-cinza btn-peq" id="aj-importar">Importar</button></div>
+      <p class="pequeno muted" style="margin:.4rem 0 0">Último backup: ${localStorage.getItem('rt_ultimo_backup') ? new Date(+localStorage.getItem('rt_ultimo_backup')).toLocaleString('pt-BR') : 'nunca'}</p>
     </div>
     <div class="card">
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.0</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.1</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
   $('#aj-sair').onclick = () => sair();
-  $('#aj-exportar').onclick = exportarBackup;
+  $('#aj-exportar').onclick = () => exportarBackup(false);
+  if ($('#aj-compartilhar')) $('#aj-compartilhar').onclick = () => exportarBackup(true);
   $('#aj-importar').onclick = () => $('#input-backup').click();
   $('#aj-apagar').onclick = async () => {
     if (prompt('Isso apaga TODOS os dados, comprovantes e o login deste aparelho.\nDigite APAGAR para confirmar:') !== 'APAGAR') return;
     await apagarTudo(); mostrarLogin(); toast('Tudo apagado.');
   };
   try {
-    const ls = new Blob([localStorage.getItem(LS_DADOS) || '']).size;
+    const ls = new Blob([JSON.stringify(DADOS)]).size;
     const fs = (await arq.todos()).reduce((s, f) => s + (f.blob?.size || 0), 0);
-    let txt = `Dados: ${fmtTam(ls)} · Comprovantes: ${fmtTam(fs)}`;
+    let txt = `Dados: ${fmtTam(ls)} · Comprovantes e contratos: ${fmtTam(fs)}`;
     if (navigator.storage?.estimate) { const e = await navigator.storage.estimate(); txt += ` · Disponível: ${fmtTam(Math.max(0, e.quota - e.usage))}`; }
     const el = $('#aj-espaco'); if (el) el.textContent = txt;
   } catch { }
@@ -681,15 +698,25 @@ async function removerArquivo(tipo, id) {
 
 /* ---------- Backup ---------- */
 const blobParaDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
-async function exportarBackup() {
+async function exportarBackup(compartilhar) {
   toast('Gerando backup…');
+  await filaGravacao;
   const arquivos = [];
   for (const f of await arq.todos()) arquivos.push({ ...f, blob: undefined, data: await blobParaDataURL(f.blob) });
-  const json = JSON.stringify({ app: 'venda-terreno', versao: 1, exportadoEm: new Date().toISOString(), dados: DADOS, arquivos });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-  a.download = `backup-venda-terreno-${hojeISO()}.json`; a.click();
-  toast('Backup exportado.');
+  const authSalvo = localStorage.getItem(LS_AUTH);
+  const json = JSON.stringify({ app: 'venda-terreno', versao: 2, exportadoEm: new Date().toISOString(), dados: DADOS, auth: authSalvo ? JSON.parse(authSalvo) : null, arquivos });
+  const nome = `backup-venda-terreno-${hojeISO()}.json`;
+  const blob = new Blob([json], { type: 'application/json' });
+  const arquivo = new File([blob], nome, { type: 'application/json' });
+  if (compartilhar && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+    try { await navigator.share({ files: [arquivo], title: 'Backup – Venda do Terreno' }); }
+    catch (e) { if (e.name !== 'AbortError') alert('Não foi possível compartilhar: ' + e.message); return; }
+  } else {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome; a.click();
+  }
+  localStorage.setItem('rt_ultimo_backup', Date.now());
+  toast(`Backup gerado (${fmtTam(blob.size)}).`);
+  if (VIEW === 'ajustes') render();
 }
 async function importarBackup(e) {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
@@ -697,21 +724,27 @@ async function importarBackup(e) {
     const b = JSON.parse(await file.text());
     if (b.app !== 'venda-terreno' || !b.dados?.itens) throw new Error('Arquivo de backup inválido.');
     if (!confirm(`Restaurar backup de ${new Date(b.exportadoEm).toLocaleString('pt-BR')}?\nOs dados atuais serão substituídos.`)) return;
+    toast('Restaurando…', 4000);
     await arq.limpar();
     for (const f of b.arquivos || []) { const blob = await (await fetch(f.data)).blob(); await arq.put({ ...f, data: undefined, blob }); }
-    DADOS = b.dados; salvarDados(); render(); toast('Backup restaurado!');
+    DADOS = b.dados; await arq.kvPut('dados', DADOS);
+    if (b.auth) localStorage.setItem(LS_AUTH, JSON.stringify(b.auth)); else localStorage.removeItem(LS_AUTH);
+    render(); toast(`Backup restaurado! ${b.dados.itens.filter(i => i.pago).length} pagamentos e ${(b.arquivos || []).length} arquivos.`);
   } catch (err) { alert('Erro ao restaurar: ' + err.message); }
 }
 async function apagarTudo() {
   [LS_DADOS, LS_AUTH, LS_SESSAO, LS_TENT].forEach(k => localStorage.removeItem(k));
   await arq.limpar().catch(() => { });
-  carregarDados();
+  await arq.kvLimpar().catch(() => { });
+  await carregarDados();
 }
 
 /* ---------- Inicialização ---------- */
-function entrarApp() {
+async function entrarApp() {
   $('#tela-login').classList.add('hidden'); $('#app').classList.remove('hidden');
-  carregarDados(); verificarSessao(); irPara(VIEW || 'inicio');
+  $('#conteudo').innerHTML = '<p class="muted" style="text-align:center">Carregando…</p>';
+  try { await carregarDados(); } catch (e) { alert('Erro ao abrir os dados do aparelho: ' + e.message); }
+  verificarSessao(); irPara(VIEW || 'inicio');
 }
 
 document.addEventListener('click', e => {
