@@ -369,7 +369,7 @@ function renderInicio(c) {
           </div>
         </div>
         ${suportaAvisos() && Notification.permission === 'default' ? `<div class="card" style="border-left:5px solid var(--amarelo)"><b>🔔 Avisos de vencimento</b><p class="pequeno muted" style="margin:.3rem 0 .7rem">Receba uma notificação 3 dias antes, 1 dia antes e no dia de cada parcela.</p><button class="btn btn-primario btn-bloco" data-avisos>Ativar avisos</button></div>` : ''}
-        <button class="btn btn-verde btn-bloco" data-enviar-link style="margin-bottom:.9rem">🟢 Enviar atualização pelo WhatsApp</button>
+        <button class="btn btn-outline btn-bloco" data-imprimir style="margin-bottom:.9rem">🖨️ Imprimir relatório</button>
         <div class="card pequeno muted"><b>Imóvel:</b> ${esc(CONTRATO.imovel)}</div>
       </div>
     </div>`;
@@ -386,6 +386,7 @@ const FILTROS = {
 function renderParcelas(c) {
   const lista = DADOS.itens.filter(FILTROS[FILTRO][1]);
   c.innerHTML = `
+    <button class="btn btn-outline btn-peq" data-imprimir style="margin-bottom:.7rem">🖨️ Imprimir relatório</button>
     <div class="chips">${Object.entries(FILTROS).map(([k, [t, f]]) => `<button class="chip ${k === FILTRO ? 'ativo' : ''}" data-filtro="${k}">${t} (${DADOS.itens.filter(f).length})</button>`).join('')}</div>
     <div class="lista">${lista.length ? lista.map(itemHTML).join('') : '<div class="card muted" style="text-align:center">Nenhum item neste filtro.</div>'}</div>`;
 }
@@ -446,6 +447,11 @@ async function renderAjustes(c) {
   const a = getAuth(), s = getSessao();
   c.innerHTML = `
     <div class="card">
+      <h3>📲 Enviar atualização</h3>
+      <p class="pequeno muted" style="margin:0 0 .7rem">Manda pelo WhatsApp o link (atualiza os pagamentos com um toque) e o arquivo com os comprovantes.</p>
+      <button class="btn btn-verde btn-bloco" data-enviar-link>🟢 Enviar atualização pelo WhatsApp</button>
+    </div>
+    <div class="card">
       <h3>Conta</h3>
       <div class="ajuste"><div><b>${esc(a?.usuario)}</b><br><span class="pequeno muted">Login em ${new Date(s.loginEm).toLocaleString('pt-BR')} · expira ${new Date(s.loginEm + SESSAO_MS).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div></div>
       <div class="ajuste"><div>Alterar usuário e senha</div><button class="btn btn-cinza btn-peq" id="aj-senha">Alterar</button></div>
@@ -464,7 +470,6 @@ async function renderAjustes(c) {
     <div class="card">
       <h3>Backup</h3>
       <p class="pequeno muted">Tudo fica salvo só neste aparelho. O backup leva parcelas, comprovantes, contratos anexados e o login — use para guardar uma cópia ou passar para outro celular/PC.</p>
-      <div class="ajuste"><div><b>Enviar atualização por link</b><br><span class="pequeno muted">Mais fácil: quem recebe só toca no link (sem comprovantes)</span></div><button class="btn btn-verde btn-peq" data-enviar-link>Enviar</button></div>
       <div class="ajuste"><div>Baixar backup<br><span class="pequeno muted">Salva o arquivo .json em Downloads</span></div><button class="btn btn-verde btn-peq" id="aj-exportar">Baixar</button></div>
       ${navigator.canShare ? `<div class="ajuste"><div>Enviar para outro aparelho<br><span class="pequeno muted">WhatsApp, Drive, e-mail…</span></div><button class="btn btn-verde btn-peq" id="aj-compartilhar">Enviar</button></div>` : ''}
       <div class="ajuste"><div>Importar backup<br><span class="pequeno muted">No aparelho novo: escolha o arquivo .json</span></div><button class="btn btn-cinza btn-peq" id="aj-importar">Importar</button></div>
@@ -474,7 +479,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.8</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.9</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -936,6 +941,77 @@ async function testarAviso() {
   await r.showNotification(prox ? `Teste: ${prox.rotulo} vence em ${fmtData(prox.venc)}` : 'Teste de aviso', { body: prox ? `Valor ${brl(prox.valor)}` : 'Os avisos estão funcionando.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' });
 }
 
+/* ---------- Relatório para imprimir ---------- */
+function abrirOpcoesRelatorio() {
+  abrirModal('Imprimir relatório', `
+    <p style="margin-top:0">O relatório sai com um <b>quadradinho ☐</b> e espaço de <b>data/visto</b> em cada parcela em aberto, para marcar à caneta quando for paga.</p>
+    <div class="form-grid">
+      <label>O que imprimir
+        <select id="rel-filtro">
+          <option value="todas">Todas as parcelas</option>
+          <option value="pendentes">Só as que faltam pagar</option>
+          <option value="pagas">Só as pagas</option>
+        </select></label>
+      <label class="switch">Incluir sinal e corretagem<input type="checkbox" id="rel-entrada" checked></label>
+      <label class="switch">Incluir resumo financeiro<input type="checkbox" id="rel-resumo" checked></label>
+      <label class="switch">Linhas de assinatura no final<input type="checkbox" id="rel-assin" checked></label>
+    </div>
+    <div class="acoes-modal"><button class="btn btn-cinza" data-fechar>Cancelar</button><button class="btn btn-primario" id="rel-imprimir">🖨️ Imprimir</button></div>
+    <p class="pequeno muted">No celular, escolha a impressora ou <b>Salvar como PDF</b>.</p>`);
+  $('#rel-imprimir').onclick = () => {
+    const op = { filtro: $('#rel-filtro').value, entrada: $('#rel-entrada').checked, resumo: $('#rel-resumo').checked, assin: $('#rel-assin').checked };
+    fecharModal(); imprimirRelatorio(op);
+  };
+}
+function imprimirRelatorio(op) {
+  const r = resumo(), hoje = hojeISO();
+  let itens = DADOS.itens.filter(it => op.entrada || cobradoPelaAdm(it));
+  if (op.filtro === 'pendentes') itens = itens.filter(it => !it.pago);
+  if (op.filtro === 'pagas') itens = itens.filter(it => it.pago);
+  const linhas = itens.map(it => {
+    const adm = cobradoPelaAdm(it);
+    const atras = !it.pago && it.tipo !== 'corretagem' && it.tipo !== 'sinal' && diffDias(hoje, it.venc) > 0;
+    const sit = it.pago ? (adm ? (it.repassado ? 'Pago e repassado' : 'Pago – aguard. repasse') : 'Pago') : (atras ? `Atrasada ${diffDias(hoje, it.venc)} d` : (it.tipo === 'sinal' || it.tipo === 'corretagem' ? 'A confirmar' : 'Em aberto'));
+    return `<tr class="${it.pago ? 'pago' : (atras ? 'atrasado' : '')}">
+      <td>${esc(it.rotulo)}</td>
+      <td class="c">${fmtData(it.venc)}</td>
+      <td class="num">${brl(it.valor)}</td>
+      <td>${sit}</td>
+      <td class="c">${it.pago ? fmtData(it.dataPg) : '<span class="rel-linha"></span>'}</td>
+      <td class="num">${it.pago ? brl(totalPago(it)) : ''}</td>
+      <td class="num">${it.pago && adm ? brl(liquido(it)) : ''}</td>
+      <td class="c"><span class="rel-caixa">${it.pago ? '✓' : ''}</span></td>
+      <td>${it.pago ? '' : '<span class="rel-linha" style="min-width:90px"></span>'}</td>
+    </tr>`;
+  }).join('');
+  const titFiltro = { todas: 'Todas as parcelas', pendentes: 'Parcelas em aberto', pagas: 'Parcelas pagas' }[op.filtro];
+  $('#relatorio').innerHTML = `
+    <div class="rel-cab"><img src="icons/logo.png" alt="">
+      <div><h1>Relatório de Recebíveis – Venda do Terreno</h1>
+      <p>${titFiltro} · emitido em ${new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p></div></div>
+    <p class="rel-info"><b>Imóvel:</b> ${esc(CONTRATO.imovel)}<br><b>Administração e cobrança:</b> ${esc(CONTRATO.administradora)} · taxa de 10% · repasse em até 5 dias úteis</p>
+    ${op.resumo ? `<div class="rel-resumo">
+      <div>Preço total <b>${brl(CONTRATO.precoTotal)}</b></div>
+      <div>Recebido <b>${brl(r.recebidoBruto)}</b></div>
+      <div>A receber <b>${brl(r.aReceber)}</b></div>
+      <div>Em atraso <b>${brl(r.emAtraso)}</b></div>
+      <div>Taxa adm. (10%) <b>${brl(r.taxas)}</b></div>
+      <div>Repassado (líq.) <b>${brl(r.repassado)}</b></div>
+      <div>Parcelas pagas <b>${r.pagasParc} de ${r.totalParc}</b></div>
+      <div>Quitado <b>${(r.principalPago / CONTRATO.precoTotal * 100).toFixed(0)}%</b></div>
+      <div>Atraso: <b>multa 10% + 1% a.m.</b></div>
+    </div>` : ''}
+    <table class="rel-tab">
+      <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Pago em</th><th>Valor pago</th><th>Líquido</th><th>Pago</th><th>Data / visto</th></tr></thead>
+      <tbody>${linhas || '<tr><td colspan="9" class="c">Nenhuma parcela neste filtro.</td></tr>'}</tbody>
+    </table>
+    ${op.assin ? `<div class="rel-assin"><div>Vendedor</div><div>Administradora (J Lima)</div></div>` : ''}
+    <p class="rel-rodape">Marque ☐ e anote data/visto à caneta ao receber cada parcela. Depois registre no sistema em Parcelas › Registrar pagamento.</p>`;
+  const img = $('#relatorio img');
+  const ir = () => setTimeout(() => window.print(), 100);
+  if (img.complete) ir(); else { img.onload = ir; img.onerror = ir; }
+}
+
 /* ---------- Inicialização ---------- */
 async function entrarApp() {
   $('#tela-login').classList.add('hidden'); $('#app').classList.remove('hidden');
@@ -950,6 +1026,7 @@ async function entrarApp() {
 document.addEventListener('click', e => {
   if (e.target.closest('[data-enviar-link]')) return enviarAtualizacao();
   if (e.target.closest('[data-avisos]')) return ativarAvisos();
+  if (e.target.closest('[data-imprimir]')) return abrirOpcoesRelatorio();
   if (e.target.closest('[data-testar-aviso]')) return testarAviso();
   const t = e.target.closest('[data-abrir],[data-fechar],[data-filtro],[data-view],[data-anexar],[data-ver],[data-remover],[data-contrato],[data-baixar],.btn-instalar,.olho');
   if (!t) return;
