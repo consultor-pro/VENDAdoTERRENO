@@ -368,6 +368,7 @@ function renderInicio(c) {
             <div class="linha"><span>Aguardando repasse</span><b>${r.aguardandoRepasse.length}</b></div>
           </div>
         </div>
+        ${suportaAvisos() && Notification.permission === 'default' ? `<div class="card" style="border-left:5px solid var(--amarelo)"><b>🔔 Avisos de vencimento</b><p class="pequeno muted" style="margin:.3rem 0 .7rem">Receba uma notificação 3 dias antes, 1 dia antes e no dia de cada parcela.</p><button class="btn btn-primario btn-bloco" data-avisos>Ativar avisos</button></div>` : ''}
         <button class="btn btn-verde btn-bloco" data-enviar-link style="margin-bottom:.9rem">🟢 Enviar atualização pelo WhatsApp</button>
         <div class="card pequeno muted"><b>Imóvel:</b> ${esc(CONTRATO.imovel)}</div>
       </div>
@@ -456,6 +457,11 @@ async function renderAjustes(c) {
       <div class="ajuste"><div>Espaço usado<br><span class="pequeno muted" id="aj-espaco">calculando…</span></div></div>
     </div>
     <div class="card">
+      <h3>🔔 Avisos de vencimento</h3>
+      <div class="ajuste"><div>${statusAvisos()}<br><span class="pequeno muted">3 dias antes, 1 dia antes, no dia e semanalmente se atrasar</span></div>
+        ${suportaAvisos() && Notification.permission === 'granted' ? '<button class="btn btn-cinza btn-peq" data-testar-aviso>Testar</button>' : (suportaAvisos() ? '<button class="btn btn-primario btn-peq" data-avisos>Ativar</button>' : '')}</div>
+    </div>
+    <div class="card">
       <h3>Backup</h3>
       <p class="pequeno muted">Tudo fica salvo só neste aparelho. O backup leva parcelas, comprovantes, contratos anexados e o login — use para guardar uma cópia ou passar para outro celular/PC.</p>
       <div class="ajuste"><div><b>Enviar atualização por link</b><br><span class="pequeno muted">Mais fácil: quem recebe só toca no link (sem comprovantes)</span></div><button class="btn btn-verde btn-peq" data-enviar-link>Enviar</button></div>
@@ -468,7 +474,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.6</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.7</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -716,11 +722,7 @@ async function exportarBackup(compartilhar) {
       <button class="btn btn-cinza btn-bloco" id="bk-salvar" style="margin-top:.6rem">💾 Salvar em Downloads</button>
       <p class="pequeno muted">Quem receber abre o app e vai em Ajustes → Importar backup.</p>`);
     $('#bk-salvar').onclick = () => { baixar(); localStorage.setItem('rt_ultimo_backup', Date.now()); toast('Backup salvo em Downloads.'); };
-    if (podeEnviar) $('#bk-share').onclick = () => {
-      navigator.share({ files: [arquivo], title: 'Backup – Venda do Terreno' })
-        .then(() => { localStorage.setItem('rt_ultimo_backup', Date.now()); fecharModal(); toast('Backup enviado.'); })
-        .catch(e => { if (e.name !== 'AbortError') alert('O celular não liberou o compartilhamento (' + e.message + ').\nUse "Salvar em Downloads" e anexe no WhatsApp pelo clipe 📎 → Documento.'); });
-    };
+    if (podeEnviar) $('#bk-share').onclick = () => compartilharArquivo(arquivo);
     return;
   } else baixar();
   localStorage.setItem('rt_ultimo_backup', Date.now());
@@ -784,7 +786,7 @@ async function enviarAtualizacao() {
   const url = await gerarLinkAtualizacao(agora);
   const { json, base, nArquivos } = await montarBackup(agora);
   const arquivo = new File([json], base + '.txt', { type: 'text/plain' });
-  const podeArquivo = !!(navigator.canShare && navigator.canShare({ files: [arquivo] }));
+  const podeArquivo = true;
   const r = resumo();
   const msg = `📋 *Venda do Terreno* – atualização de ${fmtData(hojeISO())}\n${r.pagasParc} de ${r.totalParc} parcelas pagas.\n\n👉 Toque no link para atualizar o sistema:\n${url}\n\n📎 Comprovantes: no arquivo que vou mandar em seguida, segure o dedo › Compartilhar › *Venda Terreno*.`;
   $('#toast').classList.add('hidden');
@@ -798,10 +800,26 @@ async function enviarAtualizacao() {
       <p class="pequeno muted" style="margin:.3rem 0 .9rem">Depois, no WhatsApp: clipe 📎 › Documento › escolha o arquivo.</p>`}
     <button class="btn btn-cinza btn-bloco" id="lk-copiar">📋 Copiar mensagem do link</button>`);
   $('#lk-copiar').onclick = () => navigator.clipboard.writeText(msg).then(() => toast('Mensagem copiada. Cole no WhatsApp.')).catch(() => prompt('Copie a mensagem:', msg));
-  if ($('#lk-arquivo')) $('#lk-arquivo').onclick = () => navigator.share({ files: [arquivo], text: 'Comprovantes – Venda do Terreno (segure o dedo › Compartilhar › Venda Terreno)' })
-    .then(() => { localStorage.setItem('rt_ultimo_backup', Date.now()); toast('Arquivo enviado.'); })
-    .catch(e => { if (e.name !== 'AbortError') alert('O celular não liberou o compartilhamento (' + e.message + ').'); });
+  if ($('#lk-arquivo')) $('#lk-arquivo').onclick = () => compartilharArquivo(arquivo);
   if ($('#lk-baixar')) $('#lk-baixar').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(arquivo); a.download = base + '.txt'; a.click(); localStorage.setItem('rt_ultimo_backup', Date.now()); };
+}
+
+const dentroDePrevia = () => { try { return window.self !== window.top; } catch { return true; } };
+// Compartilha o arquivo; se o celular negar, salva em Downloads e explica como anexar no WhatsApp
+function compartilharArquivo(arquivo) {
+  const planoB = motivo => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(arquivo); a.download = arquivo.name; a.click();
+    abrirModal('Arquivo salvo em Downloads', `<p style="margin-top:0">${motivo}</p>
+      <p>O arquivo <b>${esc(arquivo.name)}</b> foi salvo em <b>Downloads</b>. Para mandar:</p>
+      <ol class="termos"><li>Abra a conversa no <b>WhatsApp</b>.</li><li>Toque no clipe <b>📎</b> › <b>Documento</b>.</li><li>Escolha o arquivo <b>${esc(arquivo.name)}</b> e envie.</li></ol>
+      <button class="btn btn-primario btn-bloco" data-fechar>Entendi</button>`);
+    localStorage.setItem('rt_ultimo_backup', Date.now());
+  };
+  if (dentroDePrevia()) return planoB('Nesta prévia o envio direto é bloqueado. No app instalado (ou pelo link do site) o WhatsApp abre direto.');
+  if (!(navigator.canShare && navigator.canShare({ files: [arquivo] }))) return planoB('Este celular não permite enviar o arquivo direto pelo sistema.');
+  navigator.share({ files: [arquivo] })
+    .then(() => { localStorage.setItem('rt_ultimo_backup', Date.now()); toast('Arquivo enviado.'); })
+    .catch(e => { if (e.name !== 'AbortError') planoB('O celular não deu permissão para enviar direto.'); });
 }
 
 /* ---------- Receber arquivo compartilhado (WhatsApp › Compartilhar › Venda Terreno) ---------- */
@@ -878,6 +896,46 @@ async function aplicarImportacaoPendente(forcar) {
     <button class="btn btn-primario btn-bloco" data-fechar>OK</button>`);
 }
 
+/* ---------- Avisos de vencimento (notificações) ---------- */
+const suportaAvisos = () => 'Notification' in window && 'serviceWorker' in navigator && location.protocol.startsWith('http');
+async function pedirVerificacao() {
+  if (!suportaAvisos() || Notification.permission !== 'granted') return;
+  try { await filaGravacao; const r = await navigator.serviceWorker.ready; r.active && r.active.postMessage('verificar-vencimentos'); } catch { }
+}
+async function registrarAvisoDiario() {
+  try {
+    const r = await navigator.serviceWorker.ready;
+    if (!('periodicSync' in r)) return false;
+    const st = await navigator.permissions.query({ name: 'periodic-background-sync' }).catch(() => ({ state: 'granted' }));
+    if (st.state !== 'granted') return false;
+    await r.periodicSync.register('vencimentos', { minInterval: 12 * 3600 * 1000 });
+    return true;
+  } catch { return false; }
+}
+function statusAvisos() {
+  if (!suportaAvisos()) return 'Não suportado neste navegador';
+  if (Notification.permission === 'granted') return estaInstalado() ? '✅ Ativados' : '✅ Ativados — instale o app para receber mesmo com ele fechado';
+  if (Notification.permission === 'denied') return '⛔ Bloqueados nas configurações do celular';
+  return 'Desativados';
+}
+async function ativarAvisos() {
+  if (!suportaAvisos()) return abrirModal('Avisos', '<p>Este navegador não permite notificações. Use o <b>Chrome no Android</b> com o app instalado.</p><button class="btn btn-primario btn-bloco" data-fechar>OK</button>');
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') return abrirModal('Avisos bloqueados', `<p>O celular não liberou as notificações. Para liberar:</p>
+    <ol class="termos"><li>Segure o dedo no ícone <b>Venda Terreno</b> › <b>Informações do app</b> › <b>Notificações</b> › ativar.</li>
+    <li>Ou no Chrome: ⋮ › Configurações › Configurações de sites › Notificações › permitir este site.</li></ol>
+    <button class="btn btn-primario btn-bloco" data-fechar>OK</button>`);
+  const diario = await registrarAvisoDiario();
+  const r = await navigator.serviceWorker.ready;
+  await r.showNotification('Avisos ativados ✅', { body: diario ? 'Você será avisado 3 dias antes, 1 dia antes e no dia de cada vencimento.' : 'Os avisos aparecem quando o app for aberto. Instale o app para receber com ele fechado.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' });
+  pedirVerificacao(); render();
+}
+async function testarAviso() {
+  const r = await navigator.serviceWorker.ready;
+  const prox = resumo().proxima;
+  await r.showNotification(prox ? `Teste: ${prox.rotulo} vence em ${fmtData(prox.venc)}` : 'Teste de aviso', { body: prox ? `Valor ${brl(prox.valor)}` : 'Os avisos estão funcionando.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' });
+}
+
 /* ---------- Inicialização ---------- */
 async function entrarApp() {
   $('#tela-login').classList.add('hidden'); $('#app').classList.remove('hidden');
@@ -885,11 +943,14 @@ async function entrarApp() {
   try { await carregarDados(); } catch (e) { alert('Erro ao abrir os dados do aparelho: ' + e.message); }
   verificarSessao(); irPara(VIEW || 'inicio');
   await aplicarImportacaoPendente();
-  aplicarBackupRecebido();
+  await aplicarBackupRecebido();
+  if (suportaAvisos() && Notification.permission === 'granted') { registrarAvisoDiario(); pedirVerificacao(); }
 }
 
 document.addEventListener('click', e => {
   if (e.target.closest('[data-enviar-link]')) return enviarAtualizacao();
+  if (e.target.closest('[data-avisos]')) return ativarAvisos();
+  if (e.target.closest('[data-testar-aviso]')) return testarAviso();
   const t = e.target.closest('[data-abrir],[data-fechar],[data-filtro],[data-view],[data-anexar],[data-ver],[data-remover],[data-contrato],[data-baixar],.btn-instalar,.olho');
   if (!t) return;
   if (t.dataset.contrato) { anexarDestino = 'contrato:' + t.dataset.contrato; $('#input-arquivo').accept = 'application/pdf'; $('#input-arquivo').click(); $('#input-arquivo').accept = 'image/*,application/pdf'; return; }
@@ -911,7 +972,7 @@ $('#btn-sair-topo').addEventListener('click', () => { if (confirm('Sair do siste
 $('#input-arquivo').addEventListener('change', onArquivoEscolhido);
 $('#input-backup').addEventListener('change', importarBackup);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#visor').classList.add('hidden'); fecharModal(); } });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) verificarSessao(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { verificarSessao(); if (!$('#app').classList.contains('hidden')) pedirVerificacao(); } });
 window.addEventListener('storage', e => { if (e.key === LS_SESSAO && !sessaoValida()) sair(); });
 setInterval(verificarSessao, 20000);
 
