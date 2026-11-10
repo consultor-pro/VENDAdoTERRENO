@@ -753,19 +753,6 @@ document.addEventListener('click', e => {
   if (t.dataset.remover) { const [tp, id] = t.dataset.remover.split('|'); return removerArquivo(tp, id); }
 });
 $('#visor').addEventListener('click', () => $('#visor').classList.add('hidden'));
-// Botões fixos de backup / importação
-$('#fab-importar').addEventListener('click', () => $('#input-backup').click());
-$('#fab-exportar').addEventListener('click', () => {
-  if (!navigator.canShare) return exportarBackup(false);
-  abrirModal('Fazer backup', `
-    <p class="pequeno muted" style="margin-top:0">O backup leva parcelas, comprovantes, contratos e login.</p>
-    <div class="form-grid">
-      <button class="btn btn-verde btn-bloco" id="bk-baixar">💾 Salvar no aparelho (Downloads)</button>
-      <button class="btn btn-outline btn-bloco" id="bk-enviar">📤 Enviar (WhatsApp, Drive, e-mail…)</button>
-    </div>`);
-  $('#bk-baixar').onclick = () => { fecharModal(); exportarBackup(false); };
-  $('#bk-enviar').onclick = () => { fecharModal(); exportarBackup(true); };
-});
 $('#form-login').addEventListener('submit', onLogin);
 $('#btn-esqueci').addEventListener('click', esqueciSenha);
 $('#btn-sair-topo').addEventListener('click', () => { if (confirm('Sair do sistema?')) sair(); });

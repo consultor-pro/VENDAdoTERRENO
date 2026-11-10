@@ -114,16 +114,6 @@ textarea{min-height:80px;resize:vertical}
 .nav-inferior button.ativo{color:var(--vermelho)}
 .nav-inferior button.ativo span{filter:none;opacity:1}
 
-/* ---------- Faixa fixa de backup (acima do menu) ---------- */
-.fab-backup{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + var(--safe-b));z-index:29;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border-top:1px solid var(--borda);padding:6px 10px;display:flex;gap:8px;justify-content:center}
-.fab{flex:1;max-width:300px;border:0;border-radius:10px;min-height:40px;font-weight:700;font-size:.88rem;display:flex;align-items:center;justify-content:center;gap:.35rem;cursor:pointer}
-.fab span{font-size:1rem}
-.fab-verde{background:var(--verde);color:#fff}
-.fab-cinza{background:#eef0f3;color:var(--texto)}
-.fab:active{transform:scale(.97)}
-.conteudo{padding-bottom:calc(var(--nav-h) + var(--safe-b) + 72px)}
-.toast{bottom:calc(var(--nav-h) + var(--safe-b) + 64px)}
-
 /* ---------- Modal (bottom sheet no celular) ---------- */
 .modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
 .modal-fundo{position:absolute;inset:0;background:rgba(0,0,0,.45);animation:fade .2s}
