@@ -466,7 +466,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.2</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.3</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -753,6 +753,19 @@ document.addEventListener('click', e => {
   if (t.dataset.remover) { const [tp, id] = t.dataset.remover.split('|'); return removerArquivo(tp, id); }
 });
 $('#visor').addEventListener('click', () => $('#visor').classList.add('hidden'));
+// Botões fixos de backup / importação
+$('#fab-importar').addEventListener('click', () => $('#input-backup').click());
+$('#fab-exportar').addEventListener('click', () => {
+  if (!navigator.canShare) return exportarBackup(false);
+  abrirModal('Fazer backup', `
+    <p class="pequeno muted" style="margin-top:0">O backup leva parcelas, comprovantes, contratos e login.</p>
+    <div class="form-grid">
+      <button class="btn btn-verde btn-bloco" id="bk-baixar">💾 Salvar no aparelho (Downloads)</button>
+      <button class="btn btn-outline btn-bloco" id="bk-enviar">📤 Enviar (WhatsApp, Drive, e-mail…)</button>
+    </div>`);
+  $('#bk-baixar').onclick = () => { fecharModal(); exportarBackup(false); };
+  $('#bk-enviar').onclick = () => { fecharModal(); exportarBackup(true); };
+});
 $('#form-login').addEventListener('submit', onLogin);
 $('#btn-esqueci').addEventListener('click', esqueciSenha);
 $('#btn-sair-topo').addEventListener('click', () => { if (confirm('Sair do sistema?')) sair(); });
@@ -765,8 +778,14 @@ setInterval(verificarSessao, 20000);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   // Troca qualquer versão antiga guardada neste endereço (ex.: Elo CRM) pela atual
+  // recarrega só quando substitui uma versão anterior (não no primeiro acesso)
+  const tinhaVersaoAnterior = !!navigator.serviceWorker.controller;
   let recarregou = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!recarregou) { recarregou = true; location.reload(); } });
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!tinhaVersaoAnterior || recarregou) return;
+    if (!$('#app').classList.contains('hidden') && !$('#modal').classList.contains('hidden')) return; // não interrompe um lançamento aberto
+    recarregou = true; location.reload();
+  });
   navigator.serviceWorker.register('sw.js?v=3', { updateViaCache: 'none' }).then(r => r.update()).catch(() => { });
   if (window.caches) caches.keys().then(ks => ks.filter(k => !k.startsWith('venda-terreno-')).forEach(k => caches.delete(k)));
 }
