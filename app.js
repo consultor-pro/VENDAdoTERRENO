@@ -453,7 +453,7 @@ async function renderAjustes(c) {
     </div>
     <div class="card">
       <h3>Aplicativo</h3>
-      <div class="ajuste"><div>${estaInstalado() ? '✅ Instalado neste aparelho' : 'Instalar na tela inicial'}</div>${estaInstalado() ? '' : '<button class="btn btn-primario btn-peq btn-instalar">📲 Instalar</button>'}</div>
+      <div class="ajuste"><div>${estaInstalado() ? '✅ Aberto como app instalado' : 'Aberto pelo navegador'}<br><span class="pequeno muted">Para aparecer em "Compartilhar" do WhatsApp, instale pelo Chrome em ⋮ › <b>Instalar app</b> (não use "Adicionar à tela inicial"). Se já tinha instalado antes, desinstale e instale de novo.</span></div>${estaInstalado() ? '' : '<button class="btn btn-primario btn-peq btn-instalar">📲 Instalar</button>'}</div>
       <div class="ajuste"><div>Espaço usado<br><span class="pequeno muted" id="aj-espaco">calculando…</span></div></div>
     </div>
     <div class="card">
@@ -474,7 +474,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.7</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.8</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
