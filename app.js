@@ -368,6 +368,7 @@ function renderInicio(c) {
             <div class="linha"><span>Aguardando repasse</span><b>${r.aguardandoRepasse.length}</b></div>
           </div>
         </div>
+        <button class="btn btn-verde btn-bloco" data-enviar-link style="margin-bottom:.9rem">🟢 Enviar atualização pelo WhatsApp</button>
         <div class="card pequeno muted"><b>Imóvel:</b> ${esc(CONTRATO.imovel)}</div>
       </div>
     </div>`;
@@ -457,6 +458,7 @@ async function renderAjustes(c) {
     <div class="card">
       <h3>Backup</h3>
       <p class="pequeno muted">Tudo fica salvo só neste aparelho. O backup leva parcelas, comprovantes, contratos anexados e o login — use para guardar uma cópia ou passar para outro celular/PC.</p>
+      <div class="ajuste"><div><b>Enviar atualização por link</b><br><span class="pequeno muted">Mais fácil: quem recebe só toca no link (sem comprovantes)</span></div><button class="btn btn-verde btn-peq" data-enviar-link>Enviar</button></div>
       <div class="ajuste"><div>Baixar backup<br><span class="pequeno muted">Salva o arquivo .json em Downloads</span></div><button class="btn btn-verde btn-peq" id="aj-exportar">Baixar</button></div>
       ${navigator.canShare ? `<div class="ajuste"><div>Enviar para outro aparelho<br><span class="pequeno muted">WhatsApp, Drive, e-mail…</span></div><button class="btn btn-verde btn-peq" id="aj-compartilhar">Enviar</button></div>` : ''}
       <div class="ajuste"><div>Importar backup<br><span class="pequeno muted">No aparelho novo: escolha o arquivo .json</span></div><button class="btn btn-cinza btn-peq" id="aj-importar">Importar</button></div>
@@ -466,7 +468,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.4</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.5</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -743,15 +745,97 @@ async function apagarTudo() {
   await carregarDados();
 }
 
+/* ---------- Atualização por link (WhatsApp) ----------
+   Vai no link só o estado dos pagamentos (sem comprovantes/contratos). Quem recebe toca no link,
+   entra (se a sessão tiver expirado) e o sistema atualiza sozinho. */
+const CAMPOS_LINK = ['pago', 'dataPg', 'formaPg', 'multa', 'juros', 'valorPago', 'repassado', 'dataRepasse', 'valorRepasse', 'obs'];
+const PADRAO_LINK = { pago: false, dataPg: '', formaPg: '', multa: 0, juros: 0, valorPago: null, repassado: false, dataRepasse: '', valorRepasse: null, obs: '' };
+const LS_IMPORT = 'rt_import_pendente';
+const b64url = bytes => { let t = ''; bytes.forEach(b => t += String.fromCharCode(b)); return btoa(t).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const deB64url = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); };
+async function compactar(txt) {
+  const bytes = new TextEncoder().encode(txt);
+  if (!window.CompressionStream) return 'j' + b64url(bytes);
+  const buf = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer();
+  return 'z' + b64url(new Uint8Array(buf));
+}
+async function descompactar(s) {
+  const bytes = deB64url(s.slice(1));
+  if (s[0] === 'j') return new TextDecoder().decode(bytes);
+  return await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+}
+async function gerarLinkAtualizacao() {
+  await filaGravacao;
+  const i = {};
+  DADOS.itens.forEach(it => { if (it.pago || it.obs) i[it.id] = CAMPOS_LINK.map(c => it[c]); });
+  const cod = await compactar(JSON.stringify({ v: 1, t: Date.now(), i }));
+  return location.origin + location.pathname + '#importar=' + cod;
+}
+async function enviarAtualizacao() {
+  const url = await gerarLinkAtualizacao();
+  const r = resumo();
+  const msg = `📋 *Venda do Terreno* – atualização de ${fmtData(hojeISO())}\n${r.pagasParc} de ${r.totalParc} parcelas pagas.\n\n👉 Toque no link para atualizar o sistema:\n${url}`;
+  $('#toast').classList.add('hidden');
+  abrirModal('Enviar atualização', `
+    <p style="margin-top:0">Quem receber só precisa <b>tocar no link</b>: o sistema abre e se atualiza sozinho (pede a senha se a sessão tiver expirado).</p>
+    <a class="btn btn-verde btn-bloco" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener" id="lk-wa">🟢 Enviar pelo WhatsApp</a>
+    ${navigator.share ? '<button class="btn btn-outline btn-bloco" id="lk-share" style="margin-top:.6rem">📤 Outros aplicativos</button>' : ''}
+    <button class="btn btn-cinza btn-bloco" id="lk-copiar" style="margin-top:.6rem">📋 Copiar mensagem</button>
+    <p class="pequeno muted">Vão no link os pagamentos, encargos, repasses e observações. Comprovantes e contratos não cabem no link — para eles use o backup completo.</p>`);
+  $('#lk-wa').onclick = () => setTimeout(fecharModal, 400);
+  if ($('#lk-share')) $('#lk-share').onclick = () => navigator.share({ title: 'Venda do Terreno', text: msg }).then(fecharModal).catch(() => { });
+  $('#lk-copiar').onclick = () => navigator.clipboard.writeText(msg).then(() => toast('Mensagem copiada. Cole no WhatsApp.')).catch(() => prompt('Copie a mensagem:', msg));
+}
+function capturarLinkImportacao() {
+  if (!location.hash.startsWith('#importar=')) return false;
+  localStorage.setItem(LS_IMPORT, location.hash.slice(10));
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+async function aplicarImportacaoPendente(forcar) {
+  const cod = localStorage.getItem(LS_IMPORT); if (!cod || !DADOS) return;
+  let p;
+  try { p = JSON.parse(await descompactar(cod)); if (p.v !== 1 || !p.i) throw 0; }
+  catch { localStorage.removeItem(LS_IMPORT); return abrirModal('Link inválido', '<p>Este link de atualização está incompleto ou corrompido. Peça para enviarem de novo.</p><button class="btn btn-primario btn-bloco" data-fechar>OK</button>'); }
+  const quando = new Date(p.t).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  if (!forcar && (DADOS.ultimaAtualizacaoLink || 0) > p.t) {
+    localStorage.removeItem(LS_IMPORT);
+    return abrirModal('Link antigo', `<p>Este link é de <b>${quando}</b>, mais antigo que a última atualização já recebida. Nada foi alterado.</p><button class="btn btn-primario btn-bloco" data-fechar>OK</button>`);
+  }
+  const editadoDepois = DADOS.itens.some(it => it.atualizadoEm && new Date(it.atualizadoEm).getTime() > p.t);
+  if (!forcar && editadoDepois) {
+    abrirModal('Atenção', `<p>Há lançamentos feitos <b>neste aparelho</b> depois do envio deste link (${quando}). Se atualizar, eles serão substituídos.</p>
+      <button class="btn btn-primario btn-bloco" id="lk-forcar">Atualizar mesmo assim</button>
+      <button class="btn btn-cinza btn-bloco" style="margin-top:.6rem" id="lk-cancelar">Manter como está</button>`);
+    $('#lk-forcar').onclick = () => { fecharModal(); aplicarImportacaoPendente(true); };
+    $('#lk-cancelar').onclick = () => { localStorage.removeItem(LS_IMPORT); fecharModal(); };
+    return;
+  }
+  DADOS.itens.forEach(it => {
+    const v = p.i[it.id];
+    CAMPOS_LINK.forEach((c, k) => { it[c] = v ? v[k] : PADRAO_LINK[c]; });
+    delete it.atualizadoEm; // anexos locais são mantidos
+  });
+  DADOS.ultimaAtualizacaoLink = p.t;
+  salvarDados(); localStorage.removeItem(LS_IMPORT);
+  irPara('inicio');
+  const r = resumo();
+  abrirModal('Sistema atualizado ✅', `<p style="font-size:1.05rem;margin-top:0">Atualização de <b>${quando}</b> recebida.</p>
+    <p><b>${r.pagasParc} de ${r.totalParc}</b> parcelas pagas · recebido ${brl(r.recebidoBruto)}</p>
+    <button class="btn btn-primario btn-bloco" data-fechar>OK</button>`);
+}
+
 /* ---------- Inicialização ---------- */
 async function entrarApp() {
   $('#tela-login').classList.add('hidden'); $('#app').classList.remove('hidden');
   $('#conteudo').innerHTML = '<p class="muted" style="text-align:center">Carregando…</p>';
   try { await carregarDados(); } catch (e) { alert('Erro ao abrir os dados do aparelho: ' + e.message); }
   verificarSessao(); irPara(VIEW || 'inicio');
+  aplicarImportacaoPendente();
 }
 
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-enviar-link]')) return enviarAtualizacao();
   const t = e.target.closest('[data-abrir],[data-fechar],[data-filtro],[data-view],[data-anexar],[data-ver],[data-remover],[data-contrato],[data-baixar],.btn-instalar,.olho');
   if (!t) return;
   if (t.dataset.contrato) { anexarDestino = 'contrato:' + t.dataset.contrato; $('#input-arquivo').accept = 'application/pdf'; $('#input-arquivo').click(); $('#input-arquivo').accept = 'image/*,application/pdf'; return; }
@@ -791,4 +875,9 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   if (window.caches) caches.keys().then(ks => ks.filter(k => !k.startsWith('venda-terreno-')).forEach(k => caches.delete(k)));
 }
 atualizarBotoesInstalar();
-if (sessaoValida()) entrarApp(); else { const havia = !!getSessao(); localStorage.removeItem(LS_SESSAO); mostrarLogin(havia ? 'Sua sessão expirou (limite de 6 horas). Entre novamente.' : ''); }
+const veioPorLink = capturarLinkImportacao();
+window.addEventListener('hashchange', () => { if (capturarLinkImportacao() && sessaoValida() && !$('#app').classList.contains('hidden')) aplicarImportacaoPendente(); });
+if (sessaoValida()) entrarApp(); else {
+  const havia = !!getSessao(); localStorage.removeItem(LS_SESSAO);
+  mostrarLogin(veioPorLink || localStorage.getItem(LS_IMPORT) ? 'Entre com sua senha para receber a atualização dos pagamentos.' : (havia ? 'Sua sessão expirou (limite de 6 horas). Entre novamente.' : ''));
+}

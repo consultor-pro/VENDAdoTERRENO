@@ -1,5 +1,5 @@
 /* Service worker — cache do app para funcionar offline e permitir instalação */
-const CACHE = 'venda-terreno-v5';
+const CACHE = 'venda-terreno-v6';
 const ARQUIVOS = [
   './', './index.html', './styles.css', './app.js', './manifest.json',
   './icons/logo.png', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icon-180.png', './icon-192.png', './icon-512.png'
