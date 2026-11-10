@@ -466,7 +466,7 @@ async function renderAjustes(c) {
       <h3>Zona de perigo</h3>
       <div class="ajuste"><div>Apagar todos os dados e o acesso</div><button class="btn btn-perigo btn-peq" id="aj-apagar">Apagar</button></div>
     </div>
-    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.3</p>`;
+    <p class="pequeno muted" style="text-align:center">Venda do Terreno · v1.4</p>`;
   atualizarBotoesInstalar();
   $$('.btn-instalar', c).forEach(b => b.onclick = instalar);
   $('#aj-senha').onclick = modalSenha;
@@ -695,15 +695,29 @@ async function exportarBackup(compartilhar) {
   for (const f of await arq.todos()) arquivos.push({ ...f, blob: undefined, data: await blobParaDataURL(f.blob) });
   const authSalvo = localStorage.getItem(LS_AUTH);
   const json = JSON.stringify({ app: 'venda-terreno', versao: 2, exportadoEm: new Date().toISOString(), dados: DADOS, auth: authSalvo ? JSON.parse(authSalvo) : null, arquivos });
-  const nome = `backup-venda-terreno-${hojeISO()}.json`;
+  const base = `backup-venda-terreno-${hojeISO()}`;
   const blob = new Blob([json], { type: 'application/json' });
-  const arquivo = new File([blob], nome, { type: 'application/json' });
-  if (compartilhar && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
-    try { await navigator.share({ files: [arquivo], title: 'Backup – Venda do Terreno' }); }
-    catch (e) { if (e.name !== 'AbortError') alert('Não foi possível compartilhar: ' + e.message); return; }
-  } else {
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome; a.click();
-  }
+  const baixar = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = base + '.json'; a.click(); };
+  if (compartilhar) {
+    // 1º toque: monta o backup. 2º toque (abaixo): abre o compartilhar na hora — o Android exige
+    // que o compartilhamento venha direto de um toque, senão nega a permissão.
+    const arquivo = new File([json], base + '.txt', { type: 'text/plain' });
+    const podeEnviar = navigator.canShare && navigator.canShare({ files: [arquivo] });
+    $('#toast').classList.add('hidden');
+    abrirModal('Backup pronto', `
+      <p style="margin-top:0">Arquivo <b>${base}.txt</b> (${fmtTam(arquivo.size)}) com parcelas, comprovantes, contratos e login.</p>
+      ${podeEnviar ? '<button class="btn btn-verde btn-bloco" id="bk-share">📤 Enviar pelo WhatsApp / Drive</button>' :
+        '<div class="alerta amarelo">⚠️<div>Este navegador não permite enviar direto. Salve o arquivo e, no WhatsApp, toque no clipe 📎 → <b>Documento</b> e escolha o backup.</div></div>'}
+      <button class="btn btn-cinza btn-bloco" id="bk-salvar" style="margin-top:.6rem">💾 Salvar em Downloads</button>
+      <p class="pequeno muted">Quem receber abre o app e vai em Ajustes → Importar backup.</p>`);
+    $('#bk-salvar').onclick = () => { baixar(); localStorage.setItem('rt_ultimo_backup', Date.now()); toast('Backup salvo em Downloads.'); };
+    if (podeEnviar) $('#bk-share').onclick = () => {
+      navigator.share({ files: [arquivo], title: 'Backup – Venda do Terreno' })
+        .then(() => { localStorage.setItem('rt_ultimo_backup', Date.now()); fecharModal(); toast('Backup enviado.'); })
+        .catch(e => { if (e.name !== 'AbortError') alert('O celular não liberou o compartilhamento (' + e.message + ').\nUse "Salvar em Downloads" e anexe no WhatsApp pelo clipe 📎 → Documento.'); });
+    };
+    return;
+  } else baixar();
   localStorage.setItem('rt_ultimo_backup', Date.now());
   toast(`Backup gerado (${fmtTam(blob.size)}).`);
   if (VIEW === 'ajustes') render();
